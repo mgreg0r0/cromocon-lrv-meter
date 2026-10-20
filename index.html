@@ -1,0 +1,897 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Cromocon LRV Meter</title>
+<meta name="description" content="Connect a Cromocon LRV meter over Bluetooth, take LRV readings and compare contrast between surfaces.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Mono:wght@400;600&family=Atkinson+Hyperlegible+Next:wght@400;600;800&display=swap">
+<style>
+/* Layout: one narrow column of panels, phone first; the reading is the loudest thing on the page. */
+:root {
+  --paper: #eceef1;
+  --surface: #ffffff;
+  --ink: #15181d;
+  --muted: #59606b;
+  --line: #d3d8de;
+  --accent: #ffd200;
+  --on-accent: #15181d;
+  --good: #17703f;
+  --warn: #9a4a00;
+  --bad: #b3261e;
+  --good-bg: #e2f3e8;
+  --warn-bg: #fbeedc;
+  --bad-bg: #fbe4e2;
+  --font-body: "Atkinson Hyperlegible Next", "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-num: "Atkinson Hyperlegible Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  --radius: 14px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1216; --surface: #181c22; --ink: #eef1f4; --muted: #9ba4ae; --line: #2b313a;
+    --good: #5ccf93; --warn: #f2a65a; --bad: #ff7b70;
+    --good-bg: #11291c; --warn-bg: #2d1f0f; --bad-bg: #321513;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1216; --surface: #181c22; --ink: #eef1f4; --muted: #9ba4ae; --line: #2b313a;
+  --good: #5ccf93; --warn: #f2a65a; --bad: #ff7b70;
+  --good-bg: #11291c; --warn-bg: #2d1f0f; --bad-bg: #321513;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 1rem/1.5 var(--font-body); }
+[hidden] { display: none !important; }
+a { color: inherit; text-underline-offset: 3px; }
+h1, h2, h3 { margin: 0; line-height: 1.15; text-wrap: balance; }
+h2 { font-size: 1.15rem; font-weight: 800; }
+h3 { font-size: 1rem; font-weight: 600; }
+p { margin: 0; }
+.wrap { width: 100%; max-width: 38rem; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.small { font-size: .875rem; color: var(--muted); }
+.msg { color: var(--muted); }
+
+.top { position: sticky; top: 0; z-index: 5; background: var(--ink); color: var(--paper); }
+.top .wrap { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; }
+.eyebrow { display: block; font-size: .72rem; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; opacity: .75; }
+.top h1 { font-size: 1.3rem; font-weight: 800; }
+.chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--paper) 35%, transparent); font-size: .875rem; font-weight: 600; white-space: nowrap; }
+.chip .dot { width: 10px; height: 10px; border-radius: 50%; background: color-mix(in srgb, var(--paper) 45%, transparent); }
+.chip[data-state="connected"] .dot { background: #3ddc84; }
+.chip[data-state="connecting"] .dot, .chip[data-state="choosing"] .dot { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.chip[data-state="lost"] .dot { background: #ff7b70; }
+@keyframes pulse { 50% { opacity: .3; } }
+
+main.wrap { display: grid; gap: 14px; padding-block: 16px 40px; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; display: grid; gap: 14px; min-width: 0; }
+.panel-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.notice { border-radius: var(--radius); padding: 14px 16px; background: var(--warn-bg); color: var(--ink); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); display: grid; gap: 6px; }
+.notice strong { color: var(--warn); }
+.demo { border-radius: var(--radius); padding: 10px 14px; background: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.actions.tight { gap: 6px; }
+.btn { font: 600 1rem/1.2 var(--font-body); padding: 12px 18px; min-height: 48px; border-radius: 10px; border: 2px solid var(--ink); background: var(--surface); color: var(--ink); cursor: pointer; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.ghost { border-color: var(--line); }
+.btn.sm { min-height: 38px; padding: 7px 12px; font-size: .875rem; }
+.btn.big { flex: 1 1 14rem; min-height: 60px; font-size: 1.15rem; font-weight: 800; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.btn.primary:focus-visible { outline-color: var(--ink); }
+
+.power { font: 600 .875rem var(--font-num); color: var(--muted); }
+.zero { display: grid; grid-template-columns: 1fr auto; gap: 6px 14px; align-items: center; padding-top: 14px; border-top: 1px solid var(--line); }
+.zero > div { display: grid; gap: 4px; min-width: 0; }
+.zero p.small { grid-column: 1 / -1; }
+.zero .ok { color: var(--good); font-weight: 600; }
+
+.readout { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; }
+.swatch { width: 96px; height: 96px; border-radius: 12px; border: 1px solid var(--line); background: repeating-linear-gradient(45deg, var(--paper) 0 8px, var(--surface) 8px 16px); }
+.value { display: grid; min-width: 0; }
+.value .num { display: flex; align-items: baseline; gap: 8px; }
+#lrv { font: 600 clamp(3rem, 16vw, 4.6rem)/1 var(--font-num); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.unit { font-weight: 800; font-size: 1.1rem; }
+.lab { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+.scale { display: grid; gap: 4px; }
+.scale-bar { position: relative; height: 18px; border-radius: 6px; border: 1px solid var(--line); }
+.marker { position: absolute; top: -6px; bottom: -6px; width: 4px; margin-left: -2px; background: var(--accent); border: 1px solid var(--ink); border-radius: 2px; transition: left .25s ease; }
+.scale-ticks { display: flex; justify-content: space-between; font-size: .75rem; color: var(--muted); font-family: var(--font-num); }
+
+fieldset.seg { border: 0; padding: 0; margin: 0; display: grid; gap: 8px; min-width: 0; }
+fieldset.seg legend { padding: 0; font-weight: 600; margin-bottom: 8px; }
+.seg-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.seg-row label { position: relative; }
+.seg-row input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg-row span { display: grid; place-items: center; min-height: 48px; padding: 6px 4px; border: 2px solid var(--line); border-radius: 10px; font: 600 1rem var(--font-num); text-align: center; line-height: 1.1; }
+.seg-row span small { font: 400 .7rem var(--font-body); color: var(--muted); }
+.seg-row input:checked + span { border-color: var(--ink); background: var(--ink); color: var(--surface); }
+.seg-row input:checked + span small { color: inherit; opacity: .8; }
+.seg-row input:focus-visible + span { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+.field { display: grid; gap: 6px; font-weight: 600; }
+input[type="text"] { font: 400 1rem var(--font-body); padding: 11px 12px; min-height: 46px; border-radius: 10px; border: 2px solid var(--line); background: var(--surface); color: var(--ink); width: 100%; min-width: 0; }
+
+.dots { display: flex; flex-wrap: wrap; gap: 6px; }
+.dots i { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--muted); }
+.dots i.on { background: var(--ink); border-color: var(--ink); }
+.readings { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.readings li { font: 400 .9rem var(--font-num); font-variant-numeric: tabular-nums; padding: 4px 9px; border-radius: 8px; background: var(--paper); }
+.readings li b { font-weight: 400; color: var(--muted); margin-right: 4px; }
+.summary { font-size: .95rem; }
+.summary:empty { display: none; }
+.summary strong { font-family: var(--font-num); }
+
+.surfaces { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.surf { display: grid; grid-template-columns: auto auto 1fr auto; grid-template-areas: "pick sw name val" "pick sw meta del"; gap: 2px 10px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 12px; }
+.surf.sel { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.surf .pick { grid-area: pick; width: 24px; height: 24px; accent-color: var(--ink); margin: 0; }
+.surf .sw { grid-area: sw; width: 40px; height: 40px; border-radius: 8px; border: 1px solid var(--line); }
+.surf .name { grid-area: name; padding: 4px 6px; min-height: 34px; border-width: 1px; font-weight: 600; }
+.surf .val { grid-area: val; font: 600 1.25rem var(--font-num); font-variant-numeric: tabular-nums; text-align: right; }
+.surf .meta { grid-area: meta; font-size: .8rem; color: var(--muted); padding-left: 6px; }
+.surf .del { grid-area: del; justify-self: end; font: 600 .8rem var(--font-body); color: var(--muted); background: none; border: 0; padding: 4px 2px; cursor: pointer; min-height: 28px; }
+.surf .del.arm { color: var(--bad); }
+
+.contrast { display: grid; gap: 10px; padding: 14px; border-radius: 12px; background: var(--paper); }
+.pair { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: 8px; }
+.pair .tile { border-radius: 10px; padding: 10px; min-height: 64px; display: grid; align-content: end; font: 600 .9rem var(--font-num); min-width: 0; overflow-wrap: anywhere; }
+.pair .vs { align-self: center; font-weight: 800; color: var(--muted); }
+.big-diff { font: 600 2rem/1 var(--font-num); }
+.verdict { padding: 8px 12px; border-radius: 8px; font-weight: 600; }
+.verdict.good { background: var(--good-bg); color: var(--good); }
+.verdict.warn { background: var(--warn-bg); color: var(--warn); }
+.verdict.bad { background: var(--bad-bg); color: var(--bad); }
+
+details.diag > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; }
+details.diag > summary::-webkit-details-marker { display: none; }
+details.diag > summary::after { content: "Show"; font-size: .875rem; color: var(--muted); }
+details.diag[open] > summary::after { content: "Hide"; }
+details.diag:not([open]) { gap: 0; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; font-size: .9rem; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; font-family: var(--font-num); overflow-wrap: anywhere; }
+.check { display: flex; gap: 10px; align-items: flex-start; }
+.check input { width: 22px; height: 22px; margin: 0; accent-color: var(--ink); flex: none; }
+.raw { display: flex; gap: 8px; }
+.raw input { font-family: var(--font-num); }
+pre#log { margin: 0; max-height: 22rem; overflow: auto; padding: 12px; border-radius: 10px; background: var(--paper); font: 400 .75rem/1.45 var(--font-num); white-space: pre-wrap; overflow-wrap: anywhere; }
+footer { display: grid; gap: 8px; font-size: .85rem; color: var(--muted); padding-inline: 4px; }
+.toast { position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); max-width: min(92vw, 30rem); background: var(--ink); color: var(--surface); padding: 12px 16px; border-radius: 10px; font-weight: 600; z-index: 20; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+@media (max-width: 420px) {
+  .swatch { width: 76px; height: 76px; }
+  .zero { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <div><span class="eyebrow">Cromocon</span><h1>LRV Meter</h1></div>
+    <div id="chip" class="chip" data-state="idle" role="status"><span class="dot"></span><span id="chipText">Not connected</span></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="notice" class="notice" hidden></div>
+  <div id="demoBanner" class="demo" hidden>Simulated meter: these readings are made up. <a href="./">Use a real meter</a></div>
+
+  <section class="panel" aria-labelledby="hMeter">
+    <div class="panel-head"><h2 id="hMeter">Meter</h2><span id="power" class="power"></span></div>
+    <p id="meterMsg" class="msg">Press the top button on the meter until the status light turns green, then connect.</p>
+    <div class="actions">
+      <button id="btnConnect" class="btn primary" type="button">Connect meter</button>
+      <button id="btnReconnect" class="btn primary" type="button" hidden>Reconnect</button>
+      <button id="btnDisconnect" class="btn ghost" type="button" hidden>Disconnect</button>
+    </div>
+    <div class="zero">
+      <div>
+        <h3>Zero the meter</h3>
+        <p class="small">Push the meter all the way into its cap so it fits snugly, then tap Zero. Do this each time you connect.</p>
+      </div>
+      <button id="btnZero" class="btn" type="button" disabled>Zero</button>
+      <p id="zeroMsg" class="small">Not zeroed since connecting.</p>
+    </div>
+  </section>
+
+  <section class="panel" aria-labelledby="hMeasure">
+    <div class="panel-head"><h2 id="hMeasure">Measure</h2><span id="setLabel" class="small"></span></div>
+    <div class="readout">
+      <div class="swatch" id="swatch" role="img" aria-label="Colour of the last reading"></div>
+      <div class="value">
+        <div class="num"><output id="lrv" aria-live="polite">--</output><span class="unit">LRV</span></div>
+        <div id="lab" class="lab small">No reading yet</div>
+      </div>
+    </div>
+    <div class="scale" aria-hidden="true">
+      <div class="scale-bar" id="scaleBar"><span class="marker" id="marker" hidden></span></div>
+      <div class="scale-ticks"><span>0 black</span><span>25</span><span>50</span><span>75</span><span>100 white</span></div>
+    </div>
+
+    <fieldset class="seg">
+      <legend>Readings per surface</legend>
+      <div class="seg-row">
+        <label><input type="radio" name="setSize" id="set1" value="1"><span>1<small>single</small></span></label>
+        <label><input type="radio" name="setSize" id="set3" value="3"><span>3<small>quick</small></span></label>
+        <label><input type="radio" name="setSize" id="set5" value="5"><span>5<small>&nbsp;</small></span></label>
+        <label><input type="radio" name="setSize" id="set9" value="9"><span>9<small>BS 8493</small></span></label>
+      </div>
+    </fieldset>
+
+    <label class="field" for="surfName"><span>Surface name</span><input type="text" id="surfName" autocomplete="off" placeholder="Surface 1"></label>
+
+    <div class="dots" id="dots" aria-hidden="true"></div>
+    <ol class="readings" id="readings"></ol>
+    <p id="setSummary" class="summary"></p>
+
+    <div class="actions">
+      <button id="btnMeasure" class="btn primary big" type="button" disabled>Take reading</button>
+      <button id="btnUndo" class="btn ghost" type="button" disabled>Undo last</button>
+      <button id="btnDiscard" class="btn ghost" type="button" disabled>Discard set</button>
+    </div>
+    <p class="small">Hold the footplate flat against the surface with steady pressure. You can also press the button on the meter.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="hSurf">
+    <div class="panel-head">
+      <h2 id="hSurf">Surfaces</h2>
+      <div class="actions tight">
+        <button id="btnCopyCsv" class="btn ghost sm" type="button">Copy CSV</button>
+        <button id="btnCsv" class="btn ghost sm" type="button">Download CSV</button>
+      </div>
+    </div>
+    <p id="surfEmpty" class="msg">Each finished set of readings is saved here with its average LRV. Tick two surfaces to check the contrast between them.</p>
+    <ul id="surfaces" class="surfaces"></ul>
+    <div id="contrast" class="contrast" hidden></div>
+  </section>
+
+  <details class="panel diag" id="diag">
+    <summary><h2>Diagnostics</h2></summary>
+    <dl class="kv">
+      <dt>Device</dt><dd id="dDevice">None</dd>
+      <dt>Command channel</dt><dd id="dChannel">None</dd>
+      <dt>Firmware</dt><dd id="dFirmware">Unknown</dd>
+      <dt>Battery</dt><dd id="dBattery">Unknown</dd>
+    </dl>
+    <label class="check" for="showAll"><input type="checkbox" id="showAll"><span>Show every nearby Bluetooth device when connecting. Use this if the meter doesn't appear in the list.</span></label>
+    <div class="actions tight">
+      <button id="btnBattery" class="btn ghost sm" type="button" disabled>Read battery</button>
+      <button id="btnCharge" class="btn ghost sm" type="button" disabled>Read charging</button>
+      <button id="btnFakePress" class="btn ghost sm" type="button" hidden>Press meter button</button>
+      <button id="btnCopyLog" class="btn sm" type="button">Copy log</button>
+      <button id="btnClearLog" class="btn ghost sm" type="button">Clear log</button>
+    </div>
+    <form class="raw" id="rawForm">
+      <input type="text" id="rawHex" autocomplete="off" spellcheck="false" placeholder="Raw command in hex, e.g. 41 07 00" aria-label="Raw command in hex">
+      <button class="btn sm" type="submit" id="btnRaw" disabled>Send</button>
+    </form>
+    <pre id="log" aria-label="Bluetooth log"></pre>
+    <p class="small">No meter to hand? <a href="?demo">Try the app with a simulated meter.</a></p>
+  </details>
+
+  <footer>
+    <p>LRV here is the CIE luminance factor Y (0 to 100) worked out from the meter's L* reading, as in the original Cromocon app. A set's LRV is the average of its readings.</p>
+    <p>Saved surfaces stay in this browser on this device. Nothing is sent anywhere.</p>
+  </footer>
+</main>
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script>
+"use strict";
+
+// ---- Meter protocol (taken from the Cromocon / Palette Pico Android app) ----
+const base = id => `54aa${id}-9fa7-417a-90aa-af6eaa357506`;
+const LAB_SVC = base("5561"), LAB_CHR = base("5563");          // colour data, pushed when the meter's own button is pressed
+const STATUS_SVC = base("faf1"), STATUS_CHR = base("faf2");    // charging status, pushed
+const UARTS = [
+  { kind: "Palette", svc: base("b9a1"), rx: base("b9a2"), tx: base("b9a3") },
+  { kind: "Nordic UART", svc: "6e400001-b5a3-f393-e0a9-e50e24dcca9e", rx: "6e400003-b5a3-f393-e0a9-e50e24dcca9e", tx: "6e400002-b5a3-f393-e0a9-e50e24dcca9e" },
+];
+const OPTIONAL_SERVICES = [LAB_SVC, STATUS_SVC, ...UARTS.map(u => u.svc), 0x180a, 0x180f];
+const CMD_TIMEOUT_MS = 15000;
+
+const CMD = {
+  measure: { name: "Measure", code: 0x40, bytes: [0x4c, 0x40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], parse: v => readLab(v, 2) },
+  zero:    { name: "Zero", code: 0x05, bytes: [0x40, 0x05], parse: () => true },
+  battery: { name: "Battery", code: 0x07, bytes: [0x41, 0x07, 0x00], parse: v => Math.min(Math.max(v.getInt8(2), -1), 100) },
+  charge:  { name: "Charging", code: 0x0e, bytes: [0x41, 0x0e, 0x00], parse: v => ({ 0xb1: "Charged", 0xb2: "Not charging", 0xb3: "Charging" })[v.getUint8(2)] || "Unknown" },
+};
+const STATUS_BYTE = { 0xc0: "Not charging", 0xc1: "Charging", 0xf1: "Charged" };
+
+function readLab(view, offset) {
+  const f = i => view.getFloat32(offset + i * 4, false); // big-endian floats
+  const clamp = (x, lo, hi) => Math.min(Math.max(x, lo), hi);
+  return { L: clamp(f(0), 0, 100), a: clamp(f(1), -128, 128), b: clamp(f(2), -128, 128) };
+}
+
+// ---- Colour maths ----
+const KAPPA = 24389 / 27, EPS = 216 / 24389;
+function lrvFromL(L) { return (L > KAPPA * EPS ? ((L + 16) / 116) ** 3 : L / KAPPA) * 100; }
+function gamma(c) { c = Math.min(1, Math.max(0, c)); return Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055)); }
+function labToCss({ L, a, b }) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - b / 200;
+  const inv = t => (t ** 3 > EPS ? t ** 3 : (116 * t - 16) / KAPPA);
+  const X = inv(fx) * 0.95047, Y = lrvFromL(L) / 100, Z = inv(fz) * 1.08883;
+  const r = 3.2406 * X - 1.5372 * Y - 0.4986 * Z;
+  const g = -0.9689 * X + 1.8758 * Y + 0.0415 * Z;
+  const bl = 0.0557 * X - 0.2040 * Y + 1.0570 * Z;
+  return `rgb(${gamma(r)}, ${gamma(g)}, ${gamma(bl)})`;
+}
+function greyForLrv(lrv) { const v = gamma(lrv / 100); return `rgb(${v}, ${v}, ${v})`; }
+function inkOn(lrv) { return lrv > 30 ? "#15181d" : "#ffffff"; }
+
+// ---- State ----
+const DEMO = new URLSearchParams(location.search).has("demo");
+const STORE_KEY = "cromocon-lrv-v1";
+const state = {
+  conn: "idle", device: null, tx: null, channel: null, firmware: null,
+  battery: null, charging: null, zeroedAt: null, userDisconnect: false,
+  setSize: 9, current: [], last: null, surfaces: [], selected: [],
+};
+const queue = [];
+let inflight = null;
+const transport = { write: async () => { throw new Error("Not connected"); } };
+
+const $ = id => document.getElementById(id);
+
+function load() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+    if (Array.isArray(saved.surfaces)) state.surfaces = saved.surfaces;
+    if ([1, 3, 5, 9].includes(saved.setSize)) state.setSize = saved.setSize;
+    if (Array.isArray(saved.selected)) state.selected = saved.selected.filter(id => state.surfaces.some(s => s.id === id));
+  } catch (e) { /* storage unavailable: start fresh */ }
+}
+function save() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify({ surfaces: state.surfaces, setSize: state.setSize, selected: state.selected })); } catch (e) { /* ignore */ }
+}
+
+// ---- Log ----
+const logLines = [];
+function stamp() { const d = new Date(); return d.toTimeString().slice(0, 8) + "." + String(d.getMilliseconds()).padStart(3, "0"); }
+function hex(view) { return Array.from(new Uint8Array(view.buffer, view.byteOffset, view.byteLength), b => b.toString(16).padStart(2, "0")).join(" "); }
+function log(msg) {
+  logLines.push(`${stamp()}  ${msg}`);
+  if (logLines.length > 600) logLines.splice(0, logLines.length - 600);
+  const el = $("log");
+  el.textContent = logLines.join("\n");
+  el.scrollTop = el.scrollHeight;
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $("toast");
+  t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.hidden = true; }, 3800);
+}
+
+// ---- Command queue: one command at a time, matched on the reply's second byte ----
+function send(cmd) {
+  return new Promise((resolve, reject) => {
+    queue.push({ cmd, resolve, reject });
+    pump();
+  });
+}
+async function pump() {
+  if (inflight || !queue.length) return;
+  inflight = queue.shift();
+  const job = inflight;
+  job.timer = setTimeout(() => finish(job, new Error(`${job.cmd.name} got no reply from the meter`)), CMD_TIMEOUT_MS);
+  log(`TX ${job.cmd.name}: ${hex(new DataView(new Uint8Array(job.cmd.bytes).buffer))}`);
+  updateButtons();
+  try { await transport.write(new Uint8Array(job.cmd.bytes)); }
+  catch (e) { finish(job, e); }
+}
+function finish(job, err, value) {
+  if (inflight !== job) return;
+  clearTimeout(job.timer);
+  inflight = null;
+  if (err) { log(`!! ${err.message}`); job.reject(err); } else job.resolve(value);
+  updateButtons();
+  pump();
+}
+function failAll(reason) {
+  const err = new Error(reason);
+  if (inflight) finish(inflight, err);
+  while (queue.length) queue.shift().reject(err);
+}
+
+// ---- Incoming data ----
+function onUart(view) {
+  log(`RX command channel: ${hex(view)}`);
+  if (inflight && view.byteLength > 1 && view.getUint8(1) === inflight.cmd.code) {
+    try { finish(inflight, null, inflight.cmd.parse(view)); }
+    catch (e) { finish(inflight, new Error(`Could not read the ${inflight.cmd.name} reply`)); }
+  }
+}
+function onLab(view) {
+  log(`RX colour data: ${hex(view)}`);
+  if (inflight && inflight.cmd === CMD.measure) { log("   (ignored while the app's own reading is in progress)"); return; }
+  if (view.byteLength < 12) return;
+  addReading(readLab(view, 0), "meter button");
+}
+function onStatus(view) {
+  log(`RX status: ${hex(view)}`);
+  const s = STATUS_BYTE[view.getUint8(0)];
+  if (s) { state.charging = s; renderMeter(); }
+}
+
+// ---- Bluetooth connection ----
+async function connect() {
+  if (DEMO) return startDemo();
+  if (!navigator.bluetooth) { renderNotice(); return; }
+  const opts = $("showAll").checked
+    ? { acceptAllDevices: true, optionalServices: OPTIONAL_SERVICES }
+    : { filters: [{ namePrefix: "PICO" }, { namePrefix: "Pico" }, { namePrefix: "pico" }, { services: [LAB_SVC] }], optionalServices: OPTIONAL_SERVICES };
+  setConn("choosing");
+  let device;
+  try {
+    device = await navigator.bluetooth.requestDevice(opts);
+  } catch (e) {
+    setConn(state.device ? "lost" : "idle");
+    if (e.name === "NotFoundError") { log("Device list closed without choosing a meter"); return; }
+    log(`!! Could not open the device list: ${e.name}: ${e.message}`);
+    toast(e.name === "SecurityError" ? "This page isn't allowed to use Bluetooth here. Open it directly in Chrome." : "Couldn't search for the meter. Check Bluetooth is on.");
+    return;
+  }
+  if (state.device && state.device !== device) state.device.removeEventListener("gattserverdisconnected", onGattDisconnected);
+  state.device = device;
+  device.addEventListener("gattserverdisconnected", onGattDisconnected);
+  log(`Chosen: ${device.name || "(no name)"} id=${device.id}`);
+  await openGatt();
+}
+
+async function subscribe(server, svcId, chrId, handler, label) {
+  try {
+    const svc = await server.getPrimaryService(svcId);
+    const chr = await svc.getCharacteristic(chrId);
+    chr.addEventListener("characteristicvaluechanged", e => handler(e.target.value));
+    await chr.startNotifications();
+    log(`Listening for ${label}`);
+    return true;
+  } catch (e) {
+    log(`!! No ${label} (${e.name}: ${e.message})`);
+    return false;
+  }
+}
+
+async function openGatt() {
+  state.userDisconnect = false;
+  setConn("connecting");
+  try {
+    const server = await state.device.gatt.connect();
+    log("Connected, reading services");
+    try {
+      const svcs = await server.getPrimaryServices();
+      log("Services: " + svcs.map(s => s.uuid).join(", "));
+    } catch (e) { log(`!! Could not list services: ${e.message}`); }
+
+    await subscribe(server, LAB_SVC, LAB_CHR, onLab, "colour data");
+    await subscribe(server, STATUS_SVC, STATUS_CHR, onStatus, "status");
+
+    let uart = null, svc = null;
+    for (const u of UARTS) {
+      try { svc = await server.getPrimaryService(u.svc); uart = u; break; } catch (e) { /* try the next layout */ }
+    }
+    if (!uart) throw new Error("The meter has no command channel. Send the diagnostics log to whoever is supporting you.");
+    const rx = await svc.getCharacteristic(uart.rx);
+    rx.addEventListener("characteristicvaluechanged", e => onUart(e.target.value));
+    await rx.startNotifications();
+    const tx = await svc.getCharacteristic(uart.tx);
+    const withResponse = tx.properties.write;
+    transport.write = bytes => withResponse
+      ? (tx.writeValueWithResponse ? tx.writeValueWithResponse(bytes) : tx.writeValue(bytes))
+      : tx.writeValueWithoutResponse(bytes);
+    state.tx = tx;
+    state.channel = `${uart.kind} (${withResponse ? "write" : "write without response"})`;
+    log(`Command channel: ${state.channel}`);
+
+    try {
+      const dis = await server.getPrimaryService(0x180a);
+      const fw = await (await dis.getCharacteristic(0x2a26)).readValue();
+      state.firmware = new TextDecoder().decode(fw).replace(/\0/g, "").trim() || null;
+      if (state.firmware) log(`Firmware: ${state.firmware}`);
+    } catch (e) { /* not every meter exposes it */ }
+
+    state.zeroedAt = null;
+    setConn("connected");
+    toast("Meter connected. Zero it before measuring.");
+    refreshPower();
+  } catch (e) {
+    log(`!! Connection failed: ${e.name || "Error"}: ${e.message}`);
+    try { state.device.gatt.disconnect(); } catch (_) { /* already closed */ }
+    setConn("lost");
+    toast("Couldn't connect to the meter. Make sure it's on and close by, then tap Reconnect.");
+  }
+}
+
+function onGattDisconnected() {
+  log("Meter disconnected");
+  failAll("Meter disconnected");
+  transport.write = async () => { throw new Error("Not connected"); };
+  state.tx = null;
+  setConn(state.userDisconnect ? "idle" : "lost");
+  if (!state.userDisconnect) toast("Lost the meter. It may have gone to sleep: press its top button, then tap Reconnect.");
+}
+
+function disconnect() {
+  state.userDisconnect = true;
+  if (DEMO) { failAll("Disconnected"); setConn("idle"); return; }
+  if (state.device && state.device.gatt.connected) state.device.gatt.disconnect();
+  else setConn("idle");
+}
+
+async function refreshPower() {
+  if (state.conn !== "connected" || !state.channel || !state.channel.startsWith("Palette")) return;
+  try { state.charging = await send(CMD.charge); } catch (e) { /* logged */ }
+  try { state.battery = await send(CMD.battery); } catch (e) { /* logged */ }
+  renderMeter();
+}
+setInterval(refreshPower, 120000);
+
+// ---- Actions ----
+async function zero() {
+  $("zeroMsg").textContent = "Zeroing…";
+  try {
+    await send(CMD.zero);
+    state.zeroedAt = new Date();
+    toast("Meter zeroed");
+  } catch (e) {
+    toast(`Zero failed: ${e.message}`);
+  }
+  renderMeter();
+}
+
+async function measure() {
+  if (inflight && inflight.cmd === CMD.measure) return;
+  try {
+    const lab = await send(CMD.measure);
+    addReading(lab, "app");
+  } catch (e) {
+    toast(`Reading failed: ${e.message}`);
+  }
+}
+
+function addReading(lab, source) {
+  const lrv = lrvFromL(lab.L);
+  log(`Reading (${source}): L*=${lab.L.toFixed(2)} a*=${lab.a.toFixed(2)} b*=${lab.b.toFixed(2)} → LRV ${lrv.toFixed(2)}`);
+  if (navigator.vibrate) try { navigator.vibrate(40); } catch (e) { /* ignore */ }
+  state.last = { ...lab, lrv };
+  state.current.push({ ...lab, lrv });
+  if (state.current.length >= state.setSize) completeSet();
+  renderMeasure();
+}
+
+function stats(list) {
+  const n = list.length;
+  const mean = list.reduce((s, r) => s + r.lrv, 0) / n;
+  const sd = n > 1 ? Math.sqrt(list.reduce((s, r) => s + (r.lrv - mean) ** 2, 0) / (n - 1)) : 0;
+  const avg = k => list.reduce((s, r) => s + r[k], 0) / n;
+  return { n, mean, sd, min: Math.min(...list.map(r => r.lrv)), max: Math.max(...list.map(r => r.lrv)), L: avg("L"), a: avg("a"), b: avg("b") };
+}
+
+let lastSaved = null;
+function completeSet() {
+  const s = stats(state.current);
+  const name = $("surfName").value.trim() || nextName();
+  const surface = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name, lrv: s.mean, sd: s.sd, n: s.n, L: s.L, a: s.a, b: s.b,
+    readings: state.current.map(r => +r.lrv.toFixed(2)), at: new Date().toISOString(),
+  };
+  state.surfaces.unshift(surface);
+  state.selected = [surface.id, ...state.selected.filter(id => id !== surface.id)].slice(0, 2);
+  lastSaved = surface;
+  state.current = [];
+  $("surfName").value = "";
+  save();
+  toast(`Saved ${name}: LRV ${surface.lrv.toFixed(1)}`);
+  renderSurfaces();
+}
+function nextName() {
+  let i = state.surfaces.length + 1;
+  while (state.surfaces.some(s => s.name === `Surface ${i}`)) i++;
+  return `Surface ${i}`;
+}
+
+// ---- Rendering ----
+function setConn(c) { state.conn = c; renderMeter(); }
+
+function renderMeter() {
+  const labels = { idle: "Not connected", choosing: "Choosing meter…", connecting: "Connecting…", connected: "Connected", lost: "Disconnected" };
+  $("chip").dataset.state = state.conn;
+  $("chipText").textContent = labels[state.conn];
+  const connected = state.conn === "connected";
+  const busy = state.conn === "choosing" || state.conn === "connecting";
+  $("btnConnect").hidden = connected || state.conn === "lost";
+  $("btnConnect").disabled = busy;
+  $("btnConnect").textContent = busy ? "Connecting…" : "Connect meter";
+  $("btnReconnect").hidden = state.conn !== "lost" || !state.device && !DEMO;
+  $("btnDisconnect").hidden = !connected;
+  if (state.conn === "lost" && !state.device && !DEMO) $("btnConnect").hidden = false;
+
+  const msg = {
+    idle: "Press the top button on the meter until the status light turns green, then connect.",
+    choosing: "Pick the meter (it shows as PICO) from the list.",
+    connecting: "Connecting to the meter…",
+    connected: `Connected to ${state.device ? (state.device.name || "the meter") : "the simulated meter"}.`,
+    lost: "The meter disconnected. It sleeps when idle: press its top button, then reconnect.",
+  };
+  $("meterMsg").textContent = msg[state.conn];
+
+  const parts = [];
+  if (connected && state.battery != null && state.battery >= 0) parts.push(`${state.charging === "Charged" ? 100 : state.battery}%`);
+  if (connected && state.charging && state.charging !== "Unknown" && state.charging !== "Not charging") parts.push(state.charging);
+  $("power").textContent = parts.join(" · ");
+
+  const z = $("zeroMsg");
+  if (inflight && inflight.cmd === CMD.zero) z.textContent = "Zeroing…";
+  else if (state.zeroedAt) { z.innerHTML = ""; const s = document.createElement("span"); s.className = "ok"; s.textContent = `Zeroed at ${state.zeroedAt.toTimeString().slice(0, 5)}`; z.append(s); }
+  else z.textContent = connected ? "Not zeroed since connecting." : "Connect the meter first.";
+
+  $("dDevice").textContent = state.device ? `${state.device.name || "(no name)"}` : (DEMO && connected ? "Simulated meter" : "None");
+  $("dChannel").textContent = state.channel || "None";
+  $("dFirmware").textContent = state.firmware || "Unknown";
+  $("dBattery").textContent = state.battery != null ? `${state.battery}% · ${state.charging || "Unknown"}` : (state.charging || "Unknown");
+  updateButtons();
+}
+
+function updateButtons() {
+  const ok = state.conn === "connected";
+  const measuring = inflight && inflight.cmd === CMD.measure;
+  $("btnMeasure").disabled = !ok || measuring;
+  $("btnMeasure").textContent = measuring ? "Reading…" : "Take reading";
+  $("btnZero").disabled = !ok || (inflight && inflight.cmd === CMD.zero);
+  const palette = ok && state.channel && state.channel.startsWith("Palette");
+  $("btnBattery").disabled = !palette;
+  $("btnCharge").disabled = !palette;
+  $("btnRaw").disabled = !ok;
+  $("btnFakePress").disabled = !ok;
+}
+
+function renderMeasure() {
+  const r = state.last;
+  if (r) {
+    $("lrv").textContent = r.lrv.toFixed(1);
+    $("lab").textContent = `L* ${r.L.toFixed(1)}  a* ${r.a.toFixed(1)}  b* ${r.b.toFixed(1)}`;
+    $("swatch").style.background = labToCss(r);
+    $("marker").hidden = false;
+    $("marker").style.left = `${Math.min(100, Math.max(0, r.lrv))}%`;
+  }
+  const cur = state.current;
+  $("setLabel").textContent = `Reading ${Math.min(cur.length + 1, state.setSize)} of ${state.setSize}`;
+  const dots = $("dots");
+  dots.replaceChildren(...Array.from({ length: state.setSize }, (_, i) => { const d = document.createElement("i"); if (i < cur.length) d.className = "on"; return d; }));
+  $("readings").replaceChildren(...cur.map((x, i) => { const li = document.createElement("li"); const b = document.createElement("b"); b.textContent = i + 1; li.append(b, x.lrv.toFixed(1)); return li; }));
+  const sum = $("setSummary");
+  sum.replaceChildren();
+  if (cur.length) {
+    const s = stats(cur);
+    sum.append(`Average so far `, strong(s.mean.toFixed(1)), ` from ${s.n} reading${s.n > 1 ? "s" : ""}${s.n > 1 ? `, spread ${s.min.toFixed(1)} to ${s.max.toFixed(1)}` : ""}.`);
+  } else if (lastSaved) {
+    sum.append(`Saved ${lastSaved.name}: LRV `, strong(lastSaved.lrv.toFixed(1)), lastSaved.n > 1 ? ` (average of ${lastSaved.n}, ±${lastSaved.sd.toFixed(1)})` : "", ". Next reading starts a new surface.");
+  }
+  $("btnUndo").disabled = !cur.length;
+  $("btnDiscard").disabled = !cur.length;
+  document.querySelectorAll('input[name="setSize"]').forEach(i => { i.checked = +i.value === state.setSize; });
+  $("surfName").placeholder = nextName();
+}
+function strong(t) { const s = document.createElement("strong"); s.textContent = t; return s; }
+
+function fmtDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) + " " + d.toTimeString().slice(0, 5);
+}
+
+function renderSurfaces() {
+  const list = $("surfaces");
+  $("surfEmpty").hidden = state.surfaces.length > 0;
+  list.replaceChildren(...state.surfaces.map(s => {
+    const li = document.createElement("li");
+    li.className = "surf" + (state.selected.includes(s.id) ? " sel" : "");
+    const pick = document.createElement("input");
+    pick.type = "checkbox"; pick.className = "pick"; pick.checked = state.selected.includes(s.id);
+    pick.id = `pick-${s.id}`;
+    pick.setAttribute("aria-label", `Compare ${s.name}`);
+    pick.addEventListener("change", () => {
+      state.selected = pick.checked ? [s.id, ...state.selected.filter(x => x !== s.id)].slice(0, 2) : state.selected.filter(x => x !== s.id);
+      save(); renderSurfaces();
+    });
+    const sw = document.createElement("span");
+    sw.className = "sw"; sw.style.background = labToCss(s);
+    const name = document.createElement("input");
+    name.type = "text"; name.className = "name"; name.value = s.name; name.id = `name-${s.id}`;
+    name.setAttribute("aria-label", "Surface name");
+    name.addEventListener("change", () => { s.name = name.value.trim() || s.name; name.value = s.name; save(); renderContrast(); });
+    const val = document.createElement("span");
+    val.className = "val"; val.textContent = s.lrv.toFixed(1);
+    const meta = document.createElement("span");
+    meta.className = "meta";
+    meta.textContent = `${s.n} reading${s.n > 1 ? "s" : ""}${s.n > 1 ? ` · ±${s.sd.toFixed(1)}` : ""} · ${fmtDate(s.at)}`;
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "del"; del.textContent = "Delete";
+    del.addEventListener("click", () => {
+      if (!del.classList.contains("arm")) {
+        del.classList.add("arm"); del.textContent = "Tap again to delete";
+        setTimeout(() => { del.classList.remove("arm"); del.textContent = "Delete"; }, 3000);
+        return;
+      }
+      state.surfaces = state.surfaces.filter(x => x.id !== s.id);
+      state.selected = state.selected.filter(x => x !== s.id);
+      if (lastSaved && lastSaved.id === s.id) lastSaved = null;
+      save(); renderSurfaces(); renderMeasure();
+    });
+    li.append(pick, sw, name, val, meta, del);
+    return li;
+  }));
+  renderContrast();
+}
+
+function renderContrast() {
+  const box = $("contrast");
+  const pair = state.selected.map(id => state.surfaces.find(s => s.id === id)).filter(Boolean);
+  if (pair.length < 2) {
+    box.hidden = state.surfaces.length < 2;
+    box.replaceChildren();
+    if (state.surfaces.length >= 2) { const p = document.createElement("p"); p.className = "small"; p.textContent = "Tick two surfaces to compare them."; box.append(p); }
+    return;
+  }
+  box.hidden = false;
+  const [hi, lo] = pair[0].lrv >= pair[1].lrv ? pair : [pair[1], pair[0]];
+  const diff = hi.lrv - lo.lrv;
+  const pct = hi.lrv > 0 ? (diff / hi.lrv) * 100 : 0;
+  const tile = s => {
+    const t = document.createElement("div");
+    t.className = "tile";
+    t.style.background = greyForLrv(s.lrv); t.style.color = inkOn(s.lrv);
+    t.textContent = `${s.name} · ${s.lrv.toFixed(1)}`;
+    return t;
+  };
+  const vs = document.createElement("span"); vs.className = "vs"; vs.textContent = "vs";
+  const row = document.createElement("div"); row.className = "pair"; row.append(tile(hi), vs, tile(lo));
+  const big = document.createElement("div");
+  big.innerHTML = `<span class="big-diff"></span> <span>points LRV difference</span>`;
+  big.querySelector(".big-diff").textContent = diff.toFixed(1);
+  const verdict = document.createElement("p");
+  const cls = diff >= 30 ? "good" : diff >= 20 ? "warn" : "bad";
+  verdict.className = `verdict ${cls}`;
+  verdict.textContent = diff >= 30
+    ? "Meets the 30-point difference BS 8300 recommends between adjacent surfaces."
+    : `${(30 - diff).toFixed(1)} points short of the 30-point difference BS 8300 recommends.`;
+  const us = document.createElement("p");
+  us.className = "small";
+  us.textContent = `Contrast as a percentage (light − dark) ÷ light: ${pct.toFixed(0)}%. US guidance commonly asks for 70%.`;
+  box.replaceChildren(row, big, verdict, us);
+}
+
+function renderNotice() {
+  const n = $("notice");
+  if (DEMO) { n.hidden = true; return; }
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  let html = "";
+  if (!window.isSecureContext) {
+    html = "<strong>This page must be opened over https.</strong><p>Bluetooth only works on secure pages. Use the https:// address.</p>";
+  } else if (!navigator.bluetooth) {
+    html = ios
+      ? "<strong>Safari can't use Bluetooth.</strong><p>On iPhone or iPad, install the free <b>Bluefy</b> web browser from the App Store and open this page in it.</p>"
+      : "<strong>This browser can't use Bluetooth.</strong><p>Open this page in Chrome or Edge on Android, Windows, Mac or ChromeOS.</p>";
+  }
+  if (html) html += '<p class="small"><a href="?demo">Try the app with a simulated meter</a></p>';
+  n.innerHTML = html;
+  n.hidden = !html;
+  $("btnConnect").disabled = !!html;
+}
+
+// ---- Simulated meter (?demo) ----
+let demoBase = null;
+function demoLab() {
+  if (!demoBase || state.current.length === 0) demoBase = { L: 20 + Math.random() * 75, a: (Math.random() - .5) * 30, b: (Math.random() - .5) * 40 };
+  const n = s => (Math.random() - .5) * s;
+  return { L: demoBase.L + n(1.2), a: demoBase.a + n(.8), b: demoBase.b + n(.8) };
+}
+function floats(prefix, lab) {
+  const v = new DataView(new ArrayBuffer(prefix.length + 12));
+  prefix.forEach((b, i) => v.setUint8(i, b));
+  [lab.L, lab.a, lab.b].forEach((f, i) => v.setFloat32(prefix.length + i * 4, f, false));
+  return v;
+}
+function startDemo() {
+  state.channel = "Palette (simulated)";
+  state.firmware = "simulated";
+  state.battery = 82; state.charging = "Not charging";
+  transport.write = async bytes => {
+    const [b0, b1] = bytes;
+    const reply = (arr, ms) => setTimeout(() => onUart(arr instanceof DataView ? arr : new DataView(new Uint8Array(arr).buffer)), ms);
+    if (b0 === 0x4c && b1 === 0x40) reply(floats([0x4c, 0x40], demoLab()), 700);
+    else if (b0 === 0x40 && b1 === 0x05) reply([0x40, 0x05], 1500);
+    else if (b0 === 0x41 && b1 === 0x07) reply([0x41, 0x07, 82], 200);
+    else if (b0 === 0x41 && b1 === 0x0e) reply([0x41, 0x0e, 0xb2], 200);
+  };
+  log("Simulated meter connected");
+  state.zeroedAt = null;
+  setConn("connected");
+  toast("Simulated meter connected. Zero it before measuring.");
+  refreshPower();
+}
+
+// ---- Wiring ----
+function parseHex(s) {
+  const clean = s.replace(/0x/gi, "").replace(/[^0-9a-f]/gi, "");
+  if (!clean || clean.length % 2) return null;
+  return new Uint8Array(clean.match(/../g).map(h => parseInt(h, 16)));
+}
+function csv() {
+  const q = v => /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+  const rows = [["Surface", "LRV", "Readings", "Std dev", "L*", "a*", "b*", "Individual LRVs", "Measured"]];
+  state.surfaces.slice().reverse().forEach(s => rows.push([q(s.name), s.lrv.toFixed(1), s.n, s.sd.toFixed(2), s.L.toFixed(2), s.a.toFixed(2), s.b.toFixed(2), q(s.readings.join(" ")), s.at]));
+  return rows.map(r => r.join(",")).join("\n");
+}
+async function copyText(text, done) {
+  try { await navigator.clipboard.writeText(text); toast(done); }
+  catch (e) { toast("Couldn't copy. Select the text and copy it yourself."); }
+}
+
+$("btnConnect").addEventListener("click", connect);
+$("btnReconnect").addEventListener("click", () => DEMO ? startDemo() : openGatt());
+$("btnDisconnect").addEventListener("click", disconnect);
+$("btnZero").addEventListener("click", zero);
+$("btnMeasure").addEventListener("click", measure);
+$("btnUndo").addEventListener("click", () => { state.current.pop(); renderMeasure(); });
+$("btnDiscard").addEventListener("click", () => { state.current = []; renderMeasure(); });
+document.querySelectorAll('input[name="setSize"]').forEach(i => i.addEventListener("change", () => {
+  state.setSize = +i.value; save();
+  if (state.current.length >= state.setSize) completeSet();
+  renderMeasure();
+}));
+$("btnBattery").addEventListener("click", async () => { try { state.battery = await send(CMD.battery); renderMeter(); } catch (e) { toast(e.message); } });
+$("btnCharge").addEventListener("click", async () => { try { state.charging = await send(CMD.charge); renderMeter(); } catch (e) { toast(e.message); } });
+$("btnFakePress").addEventListener("click", () => onLab(floats([], demoLab())));
+$("btnCopyLog").addEventListener("click", () => copyText(
+  [`Cromocon LRV Meter log · ${new Date().toISOString()}`, navigator.userAgent, `Device: ${$("dDevice").textContent} · Channel: ${$("dChannel").textContent} · Firmware: ${$("dFirmware").textContent}`, "", ...logLines].join("\n"),
+  "Log copied"));
+$("btnClearLog").addEventListener("click", () => { logLines.length = 0; $("log").textContent = ""; });
+$("rawForm").addEventListener("submit", async e => {
+  e.preventDefault();
+  const bytes = parseHex($("rawHex").value);
+  if (!bytes) { toast("Type bytes as hex pairs, e.g. 41 07 00"); return; }
+  log(`TX raw: ${hex(new DataView(bytes.buffer))}`);
+  try { await transport.write(bytes); } catch (err) { log(`!! ${err.message}`); }
+});
+$("btnCopyCsv").addEventListener("click", () => state.surfaces.length ? copyText(csv(), "CSV copied") : toast("No surfaces yet"));
+$("btnCsv").addEventListener("click", () => {
+  if (!state.surfaces.length) { toast("No surfaces yet"); return; }
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv()], { type: "text/csv" }));
+  a.download = `lrv-readings-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+
+// LRV scale: grey steps with equal LRV spacing, so 50 looks like a real 50 LRV surface.
+$("scaleBar").style.background = `linear-gradient(to right, ${Array.from({ length: 11 }, (_, i) => `${greyForLrv(i * 10)} ${i * 10}%`).join(", ")})`;
+
+load();
+if (DEMO) { $("demoBanner").hidden = false; $("btnFakePress").hidden = false; $("diag").open = true; }
+renderNotice();
+renderMeter();
+renderMeasure();
+renderSurfaces();
+if (navigator.bluetooth && navigator.bluetooth.getAvailability && !DEMO) {
+  navigator.bluetooth.getAvailability().then(ok => {
+    if (!ok) { const n = $("notice"); n.innerHTML = "<strong>Bluetooth is off or missing.</strong><p>Turn Bluetooth on, then reload this page.</p>"; n.hidden = false; }
+  }).catch(() => {});
+}
+log(DEMO ? "Simulated meter mode" : `Ready. Web Bluetooth ${navigator.bluetooth ? "available" : "not available"} in this browser.`);
+</script>
+</body>
+</html>
